@@ -17,9 +17,12 @@
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
 #include "esp_gatt_common_api.h"
+#include "driver/gpio.h"
 #include "sdkconfig.h"
 #include "gat_server/gat_server.h"
 
+extern QueueHandle_t blt_rx_queue;
+static bool is_ble_connected = false;
 uint8_t char1_str[] = {0x11,0x22,0x33};
 
 esp_attr_value_t gatts_demo_char1_val =
@@ -69,6 +72,9 @@ esp_ble_adv_data_t scan_rsp_data = {
     .p_service_uuid = adv_service_uuid128,
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
+
+void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+
 struct gatts_profile_inst gl_profile_tab[PROFILE_NUM] = {
     [PROFILE_A_APP_ID] = {
         .gatts_cb = gatts_profile_a_event_handler,
@@ -86,7 +92,6 @@ esp_ble_adv_params_t adv_params = {
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 prepare_type_env_t a_prepare_write_env;
-QueueHandle_t queue;
 
 void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
@@ -257,8 +262,7 @@ void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gat
         ESP_LOGI(GATTS_TAG, "GATT_READ_EVT, conn_id %d, trans_id %" PRIu32 ", handle %d", param->read.conn_id, param->read.trans_id, param->read.handle);
         esp_gatt_rsp_t rsp;
         memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
-        // esp_log_buffer_hex(GATTS_TAG, param->write.value, param->write.len);
-        // receive_data(param->write.value);
+
         rsp.attr_value.handle = param->read.handle;
         rsp.attr_value.len = 4;
         rsp.attr_value.value[0] = 0xde;
@@ -272,12 +276,11 @@ void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gat
     case ESP_GATTS_WRITE_EVT: {
         ESP_LOGI(GATTS_TAG, "GATT_WRITE_EVT, conn_id %d, trans_id %" PRIu32 ", handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
         if (!param->write.is_prep){
-        uint8_t d[] = {5};
+        
         ESP_LOGI(GATTS_TAG, "GATT_WRITE_EVT, value len %d, value :", param->write.len);
-        xQueueSend(queue, param->write.value, (TickType_t)0);
-        receive_data();
-            esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gl_profile_tab[PROFILE_A_APP_ID].char_handle,
-                                                sizeof(d), d, false);
+        xQueueSend(blt_rx_queue, param->write.value, pdMS_TO_TICKS(100));
+        is_ble_connected = true;
+        esp_log_buffer_hex(GATTS_TAG, param->write.value, param->write.len);
             if (gl_profile_tab[PROFILE_A_APP_ID].descr_handle == param->write.handle && param->write.len == 2){
                 uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
                 if (descr_value == 0x0001){
@@ -450,8 +453,7 @@ void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp
 }
 
 void ble_server_init()
-{
-    queue = xQueueCreate(30, 5*sizeof(uint8_t)); 
+{ 
     esp_err_t ret;
 
     // Initialize NVS.
@@ -511,10 +513,34 @@ void ble_server_init()
     return;
 }
 
-void receive_data()
+esp_err_t send_data(uint8_t *data, uint8_t len)
 {
-    uint8_t data[5];
-    xQueueReceive(queue, &data, (TickType_t)5);
-    esp_log_buffer_hex(GATTS_TAG, data, sizeof(data));
+    if (is_ble_connected)
+    {
+        return esp_ble_gatts_send_indicate(gl_profile_tab[PROFILE_A_APP_ID].gatts_if, gl_profile_tab[PROFILE_A_APP_ID].conn_id, gl_profile_tab[PROFILE_A_APP_ID].char_handle,
+                                            len, data, false);
+    }
+    else return ESP_FAIL;
+}
 
+bool receive_data(uint8_t *buffer, uint8_t *buffer_size)
+{
+    
+    server_data data_rx;
+    if (xQueueReceive(blt_rx_queue, &data_rx, pdMS_TO_TICKS(300)) == pdPASS )
+    {
+        *buffer_size = data_rx.len;
+        memcpy(buffer, data_rx.value, *buffer_size);
+        free(data_rx.value);
+        return true;
+    }
+    return false;
+}
+
+void control_gpio(uint8_t human_distance)
+{
+    gpio_set_direction(CONTROL_GPIO, GPIO_MODE_OUTPUT);
+    if(human_distance < HUMAN_DISTANCE){
+        gpio_set_level(45, IS_SAFE);
+    }else gpio_set_level(45, !IS_SAFE);
 }

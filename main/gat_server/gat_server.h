@@ -2,30 +2,9 @@
 #define GAT_SERVER_H
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <inttypes.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-#include "esp_system.h"
-#include "esp_log.h"
-#include "nvs_flash.h"
-#include "esp_bt.h"
-
-#include "esp_gap_ble_api.h"
-#include "esp_gatts_api.h"
-#include "esp_bt_defs.h"
-#include "esp_bt_main.h"
-#include "esp_bt_device.h"
-#include "esp_gatt_common_api.h"
 #include "sdkconfig.h"
 
 #define GATTS_TAG "GATTS_DEMO"
-
-///Declare the static function
-void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
-void gatts_profile_b_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
 #define GATTS_SERVICE_UUID_TEST_A   0x00FF
 #define GATTS_CHAR_UUID_TEST_A      0xFF01
@@ -42,13 +21,18 @@ void gatts_profile_b_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gat
 #define adv_config_flag      (1 << 0)
 #define scan_rsp_config_flag (1 << 1)
 
-// The length of adv data must be less than 31 bytes
-//static uint8_t test_manufacturer[TEST_MANUFACTURER_DATA_LEN] =  {0x12, 0x23, 0x45, 0x56};
-//adv data
-// scan response data
-
-#define PROFILE_NUM 2
+#define PROFILE_NUM 1
 #define PROFILE_A_APP_ID 0
+
+#define QUEUE_BLE_SIZE 5
+#define CONTROL_GPIO 10
+#define HUMAN_DISTANCE 200
+#define IS_SAFE 0
+
+typedef struct {
+    uint8_t *value;
+    uint8_t len;
+}server_data;
 
 struct gatts_profile_inst {
     esp_gatts_cb_t gatts_cb;
@@ -72,15 +56,39 @@ typedef struct {
     int                     prepare_len;
 } prepare_type_env_t;
 
-void example_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
-void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
 
-void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
-void example_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
-void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
-void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
-void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+/**
+ * @brief Init ble config for esp32 communication
+ * This function configures and initializes the ble interfaces for esp32 server.
+ */
+
 void ble_server_init();
-void receive_data();
+
+/**
+ * @brief Send data frame to server
+ *
+ * @param data is the data that want to send
+ * @param len is the length of data
+ * @return ESP_OK if send successfully, ESP_FAIL if not
+ */
+esp_err_t send_data(uint8_t *data, uint8_t len);
+
+/**
+ * @brief take receive data from queue_receive into *data_receive pointer
+ *
+ * @param buffer pointer take data
+ * @param buffer_size is length of buffer
+ * @return true if take data success
+ * @return false if take data fail
+ */
+bool receive_data(uint8_t *buffer, uint8_t *buffer_size);
+
+/**
+ * @brief this function control GPIO pin to turn on or off machine base on distance to human
+ * 
+ * @param human_distance is smallest distance from people around to machine
+ */
+void control_gpio(uint8_t human_distance);
+
 
 #endif

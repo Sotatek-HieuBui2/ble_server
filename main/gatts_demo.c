@@ -18,10 +18,10 @@
 #include "esp_gatt_common_api.h"
 
 #include "sdkconfig.h"
-
+#include "ble_server_task/ble_server_task.c"
 #include "gat_server/gat_server.h"
 extern QueueHandle_t queue;
 
 void app_main(void){
-    ble_server_init();
+    bluetooth_client_task_init();
 }
